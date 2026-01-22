@@ -1,0 +1,1 @@
+export const API_BASE_URL = 'https://prediction-market-production-7dbf.up.railway.app/api';
