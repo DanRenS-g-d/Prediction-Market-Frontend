@@ -2062,10 +2062,22 @@ function AdminPanelView({ user, token, onSuccess, onError, setView }) {
   const [resolutionEvidence, setResolutionEvidence] = useState("");
   const [resolving, setResolving] = useState(false);
 
+  const [commitmentEvents, setCommitmentEvents] = useState([]);
+  const [loadingCommitments, setLoadingCommitments] = useState(false);
+  const [selectedCommitmentEvent, setSelectedCommitmentEvent] = useState(null);
+  const [commitmentResolutionOutcome, setCommitmentResolutionOutcome] =
+    useState("");
+  const [commitmentResolutionNotes, setCommitmentResolutionNotes] =
+    useState("");
+  const [commitmentResolutionEvidence, setCommitmentResolutionEvidence] =
+    useState("");
+  const [resolvingCommitment, setResolvingCommitment] = useState(false);
+
   useEffect(() => {
     loadInviteCodes();
     loadProposals("pending");
     loadResolvableMarkets();
+    loadCommitmentEvents();
   }, []);
 
   const loadInviteCodes = async () => {
@@ -2113,6 +2125,59 @@ function AdminPanelView({ user, token, onSuccess, onError, setView }) {
       onError("Connection error");
     } finally {
       setLoadingResolvable(false);
+    }
+  };
+
+  const loadCommitmentEvents = async () => {
+    setLoadingCommitments(true);
+    try {
+      const result = await api.getCommitmentEvents("active");
+      if (result.success) {
+        // Filtrar solo eventos que ya pasaron el deadline
+        const readyToResolve = result.events.filter(
+          (e) => new Date(e.deadline) < new Date()
+        );
+        setCommitmentEvents(readyToResolve);
+      } else {
+        onError("Error loading commitment events");
+      }
+    } catch (err) {
+      onError("Connection error");
+    } finally {
+      setLoadingCommitments(false);
+    }
+  };
+
+  const handleResolveCommitment = async (eventId) => {
+    if (!commitmentResolutionOutcome) {
+      onError("Selecciona un resultado");
+      return;
+    }
+
+    setResolvingCommitment(true);
+    try {
+      const result = await api.resolveCommitment(
+        token,
+        eventId,
+        commitmentResolutionOutcome,
+        commitmentResolutionNotes,
+        commitmentResolutionEvidence
+      );
+
+      if (result.success) {
+        onSuccess(result.message);
+        setSelectedCommitmentEvent(null);
+        setCommitmentResolutionOutcome("");
+        setCommitmentResolutionNotes("");
+        setCommitmentResolutionEvidence("");
+        loadCommitmentEvents();
+      } else {
+        onError(result.error || "Error resolving commitment");
+      }
+    } catch (err) {
+      onError("Connection error");
+    } finally {
+      setResolvingCommitment(false);
     }
   };
 
@@ -2284,6 +2349,19 @@ function AdminPanelView({ user, token, onSuccess, onError, setView }) {
         >
           ⚖️ Resolve Markets
         </button>
+
+        {/* <- AQUÍ AGREGA ESTE NUEVO BOTÓN ↓ */}
+        <button
+          onClick={() => setActiveTab("commitments")}
+          className={`px-4 py-2 font-medium ${
+            activeTab === "commitments"
+              ? "text-blue-600 border-b-2 border-blue-600"
+              : "text-gray-600"
+          }`}
+        >
+          🤝 Commitments
+        </button>
+
         <button
           onClick={() => setView("create-market")}
           className="px-4 py-2 font-medium text-green-600 hover:text-green-700"
@@ -2940,6 +3018,213 @@ function AdminPanelView({ user, token, onSuccess, onError, setView }) {
                         {resolving
                           ? "Resolving..."
                           : `⚖️ Resolve as ${resolutionOutcome || "..."}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "commitments" && (
+        <div className="bg-white rounded-lg border">
+          <div className="p-6 border-b flex justify-between items-center">
+            <h2 className="text-xl font-bold">Resolve Commitment Events</h2>
+            <button
+              onClick={() => loadCommitmentEvents()}
+              className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loadingCommitments ? (
+            <div className="p-12 text-center text-gray-500">Loading...</div>
+          ) : commitmentEvents.length === 0 ? (
+            <div className="p-12 text-center text-gray-500">
+              No commitment events ready to resolve
+            </div>
+          ) : (
+            <div className="divide-y">
+              {commitmentEvents.map((event) => (
+                <div key={event.id} className="p-6 hover:bg-gray-50">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                        {event.title}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-3">
+                        {event.description}
+                      </p>
+                      <div className="flex items-center gap-4 text-sm mb-3">
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-semibold">
+                          {event.commitment_type}
+                        </span>
+                        <span className="text-gray-500">
+                          👤 Sujeto: <strong>{event.subject_username}</strong>
+                        </span>
+                        <span className="text-gray-500">
+                          Deadline:{" "}
+                          {new Date(event.deadline).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {event.total_predictions > 0 && (
+                        <div className="text-sm text-gray-600">
+                          🔮 {event.total_predictions} predicciones | Confianza
+                          promedio: {event.avg_prediction}%
+                        </div>
+                      )}
+                    </div>
+                    <div className="ml-4">
+                      <button
+                        onClick={() =>
+                          setSelectedCommitmentEvent(
+                            selectedCommitmentEvent?.id === event.id
+                              ? null
+                              : event
+                          )
+                        }
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-semibold"
+                      >
+                        {selectedCommitmentEvent?.id === event.id
+                          ? "Close"
+                          : "Resolve"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedCommitmentEvent?.id === event.id && (
+                    <div className="mt-4 pt-4 border-t space-y-4">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                          Resolution Criteria
+                        </h4>
+                        <div className="bg-gray-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                          {event.resolution_criteria}
+                        </div>
+                      </div>
+
+                      {event.evidence_required && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                            Evidence Required
+                          </h4>
+                          <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                            {event.evidence_required}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Resolution Outcome *
+                        </label>
+                        <div className="grid grid-cols-3 gap-4">
+                          <button
+                            onClick={() =>
+                              setCommitmentResolutionOutcome("fulfilled")
+                            }
+                            className={`p-4 rounded-lg border-2 ${
+                              commitmentResolutionOutcome === "fulfilled"
+                                ? "border-green-500 bg-green-50"
+                                : "border-gray-200 hover:border-green-300"
+                            }`}
+                          >
+                            <div className="text-lg font-bold text-green-600">
+                              ✅ Cumplido
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Fulfilled
+                            </div>
+                          </button>
+                          <button
+                            onClick={() =>
+                              setCommitmentResolutionOutcome("not_fulfilled")
+                            }
+                            className={`p-4 rounded-lg border-2 ${
+                              commitmentResolutionOutcome === "not_fulfilled"
+                                ? "border-red-500 bg-red-50"
+                                : "border-gray-200 hover:border-red-300"
+                            }`}
+                          >
+                            <div className="text-lg font-bold text-red-600">
+                              ❌ No Cumplido
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Not Fulfilled
+                            </div>
+                          </button>
+                          <button
+                            onClick={() =>
+                              setCommitmentResolutionOutcome("disputed")
+                            }
+                            className={`p-4 rounded-lg border-2 ${
+                              commitmentResolutionOutcome === "disputed"
+                                ? "border-yellow-500 bg-yellow-50"
+                                : "border-gray-200 hover:border-yellow-300"
+                            }`}
+                          >
+                            <div className="text-lg font-bold text-yellow-600">
+                              ⚠️ Disputado
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Disputed
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Evidence URL (optional)
+                        </label>
+                        <input
+                          type="url"
+                          value={commitmentResolutionEvidence}
+                          onChange={(e) =>
+                            setCommitmentResolutionEvidence(e.target.value)
+                          }
+                          placeholder="https://example.com/proof"
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Resolution Notes (optional)
+                        </label>
+                        <textarea
+                          value={commitmentResolutionNotes}
+                          onChange={(e) =>
+                            setCommitmentResolutionNotes(e.target.value)
+                          }
+                          placeholder="Explanation of the resolution..."
+                          rows={3}
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <p className="text-sm text-yellow-800">
+                          <strong>Warning:</strong> This action is irreversible.
+                          The user's reputation stats will be updated.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleResolveCommitment(event.id)}
+                        disabled={
+                          !commitmentResolutionOutcome || resolvingCommitment
+                        }
+                        className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-300"
+                      >
+                        {resolvingCommitment
+                          ? "Resolving..."
+                          : `⚖️ Resolve as ${
+                              commitmentResolutionOutcome || "..."
+                            }`}
                       </button>
                     </div>
                   )}
@@ -5052,10 +5337,10 @@ function UserReputationView({ userId, onBack }) {
       if (result.success) {
         setData(result);
       } else {
-        setError(result.error || 'Error cargando reputación');
+        setError(result.error || "Error cargando reputación");
       }
     } catch (err) {
-      setError('Error de conexión');
+      setError("Error de conexión");
     } finally {
       setLoading(false);
     }
@@ -5117,7 +5402,8 @@ function UserReputationView({ userId, onBack }) {
         </div>
         <div className="bg-white bg-opacity-20 rounded-lg p-4 backdrop-blur-sm">
           <p className="text-sm text-white">
-            📊 <strong>Estadísticas de Compromiso</strong> - Agregado de predicciones de la comunidad
+            📊 <strong>Estadísticas de Compromiso</strong> - Agregado de
+            predicciones de la comunidad
           </p>
         </div>
       </div>
@@ -5132,8 +5418,13 @@ function UserReputationView({ userId, onBack }) {
               <strong>{disclaimer}</strong>
             </p>
             <p>
-              Esta información es un agregado estadístico de eventos registrados y predicciones realizadas por terceros. 
-              <strong> NO es un score crediticio, NO es una recomendación, y NO garantiza comportamiento futuro.</strong>
+              Esta información es un agregado estadístico de eventos registrados
+              y predicciones realizadas por terceros.
+              <strong>
+                {" "}
+                NO es un score crediticio, NO es una recomendación, y NO
+                garantiza comportamiento futuro.
+              </strong>
             </p>
           </div>
         </div>
@@ -5153,7 +5444,9 @@ function UserReputationView({ userId, onBack }) {
             {/* Resumen */}
             <div className="grid md:grid-cols-4 gap-4">
               <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-                <div className="text-sm text-blue-700 mb-1">Total de Eventos</div>
+                <div className="text-sm text-blue-700 mb-1">
+                  Total de Eventos
+                </div>
                 <div className="text-3xl font-bold text-blue-900">
                   {stats.total_commitments}
                 </div>
@@ -5183,7 +5476,9 @@ function UserReputationView({ userId, onBack }) {
 
             {/* Tasa de Cumplimiento */}
             <div className="bg-gray-50 rounded-lg p-6 border-2 border-gray-300">
-              <h3 className="text-lg font-semibold mb-4">Tasa de Cumplimiento Observada</h3>
+              <h3 className="text-lg font-semibold mb-4">
+                Tasa de Cumplimiento Observada
+              </h3>
               <div className="flex items-center gap-4">
                 <div className="flex-1">
                   <div className="w-full bg-gray-200 rounded-full h-8">
@@ -5195,7 +5490,8 @@ function UserReputationView({ userId, onBack }) {
                     </div>
                   </div>
                   <p className="text-xs text-gray-600 mt-2">
-                    En {stats.total_commitments} eventos, el usuario cumplió {stats.fulfilled} veces
+                    En {stats.total_commitments} eventos, el usuario cumplió{" "}
+                    {stats.fulfilled} veces
                   </p>
                 </div>
               </div>
@@ -5213,11 +5509,15 @@ function UserReputationView({ userId, onBack }) {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-700">
-                      Basado en <strong>{stats.total_predictions_received} predicciones</strong> realizadas 
-                      por la comunidad sobre eventos futuros
+                      Basado en{" "}
+                      <strong>
+                        {stats.total_predictions_received} predicciones
+                      </strong>{" "}
+                      realizadas por la comunidad sobre eventos futuros
                     </p>
                     <p className="text-xs text-gray-500 mt-2">
-                      Esto representa el porcentaje promedio de personas que predijeron que cumpliría
+                      Esto representa el porcentaje promedio de personas que
+                      predijeron que cumpliría
                     </p>
                   </div>
                 </div>
@@ -5229,13 +5529,29 @@ function UserReputationView({ userId, onBack }) {
               <div className="flex items-start">
                 <Info className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
                 <div className="text-sm text-blue-900">
-                  <p className="font-semibold mb-1">Cómo interpretar estas estadísticas</p>
+                  <p className="font-semibold mb-1">
+                    Cómo interpretar estas estadísticas
+                  </p>
                   <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li>Estas son observaciones históricas, NO predicciones futuras</li>
-                    <li>Cada evento tiene contexto único que debe evaluarse individualmente</li>
-                    <li>La "confianza de la comunidad" refleja opiniones de terceros, no hechos</li>
-                    <li>Un historial perfecto no garantiza cumplimiento futuro</li>
-                    <li>Un historial imperfecto no imposibilita cumplimiento futuro</li>
+                    <li>
+                      Estas son observaciones históricas, NO predicciones
+                      futuras
+                    </li>
+                    <li>
+                      Cada evento tiene contexto único que debe evaluarse
+                      individualmente
+                    </li>
+                    <li>
+                      La "confianza de la comunidad" refleja opiniones de
+                      terceros, no hechos
+                    </li>
+                    <li>
+                      Un historial perfecto no garantiza cumplimiento futuro
+                    </li>
+                    <li>
+                      Un historial imperfecto no imposibilita cumplimiento
+                      futuro
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -5250,31 +5566,46 @@ function UserReputationView({ userId, onBack }) {
           <h2 className="text-2xl font-bold mb-6">Eventos Recientes</h2>
           <div className="space-y-4">
             {recent_events.map((event) => (
-              <div key={event.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+              <div
+                key={event.id}
+                className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+              >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 mb-1">{event.title}</h3>
-                    <p className="text-sm text-gray-600 line-clamp-2">{event.description}</p>
+                    <h3 className="font-semibold text-gray-900 mb-1">
+                      {event.title}
+                    </h3>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {event.description}
+                    </p>
                   </div>
-                  {event.status === 'resolved' && event.resolution_outcome && (
-                    <span className={`ml-4 px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap ${
-                      event.resolution_outcome === 'fulfilled' ? 'bg-green-100 text-green-800' :
-                      event.resolution_outcome === 'not_fulfilled' ? 'bg-red-100 text-red-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {event.resolution_outcome === 'fulfilled' ? '✅ Cumplido' : 
-                      event.resolution_outcome === 'not_fulfilled' ? '❌ No Cumplido' : 
-                      '⚠️ Disputado'}
+                  {event.status === "resolved" && event.resolution_outcome && (
+                    <span
+                      className={`ml-4 px-3 py-1 rounded-full text-sm font-semibold whitespace-nowrap ${
+                        event.resolution_outcome === "fulfilled"
+                          ? "bg-green-100 text-green-800"
+                          : event.resolution_outcome === "not_fulfilled"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-yellow-100 text-yellow-800"
+                      }`}
+                    >
+                      {event.resolution_outcome === "fulfilled"
+                        ? "✅ Cumplido"
+                        : event.resolution_outcome === "not_fulfilled"
+                        ? "❌ No Cumplido"
+                        : "⚠️ Disputado"}
                     </span>
                   )}
-                  {event.status === 'active' && (
+                  {event.status === "active" && (
                     <span className="ml-4 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
                       🟢 Activo
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
-                  <span>📅 Límite: {new Date(event.deadline).toLocaleDateString()}</span>
+                  <span>
+                    📅 Límite: {new Date(event.deadline).toLocaleDateString()}
+                  </span>
                   {event.total_predictions > 0 && (
                     <>
                       <span>•</span>
@@ -5293,3 +5624,18 @@ function UserReputationView({ userId, onBack }) {
           </div>
         </div>
       )}
+
+      {/* Footer Disclaimer */}
+      <div className="mt-6 text-center py-4 bg-gray-50 rounded-lg border">
+        <p className="text-xs text-gray-600">
+          <strong>Última actualización:</strong>{" "}
+          {new Date(stats.last_updated).toLocaleString()}
+        </p>
+        <p className="text-xs text-gray-500 mt-2">
+          PredicciónCO no valida, verifica ni garantiza la exactitud de esta
+          información
+        </p>
+      </div>
+    </div> // <- Cierra el div principal del return
+  ); // <- Cierra el return
+} // <- Cierra la función UserReputationView
